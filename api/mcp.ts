@@ -15,7 +15,8 @@ const authToken = process.env.AUTH_TOKEN
 
 // Prepare the OpenAPI spec
 function getOpenApiSpec(): OpenAPIV3.Document {
-  const spec = notionOpenApiSpec as OpenAPIV3.Document
+  // Cast through unknown to avoid strict type checking on JSON import
+  const spec = structuredClone(notionOpenApiSpec) as unknown as OpenAPIV3.Document
   if (baseUrl && spec.servers && spec.servers[0]) {
     spec.servers[0].url = baseUrl
   }
