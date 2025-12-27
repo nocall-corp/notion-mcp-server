@@ -80,6 +80,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
+    console.log('MCP request received:', req.method, JSON.stringify(req.body))
+    
     if (req.method === 'POST') {
       // Handle POST requests for client-to-server communication
       const sessionId = req.headers['mcp-session-id'] as string | undefined
@@ -90,24 +92,39 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         transport = transports[sessionId]
       } else if (!sessionId && isInitializeRequest(req.body)) {
         // New initialization request
-        transport = new StreamableHTTPServerTransport({
-          sessionIdGenerator: () => randomUUID(),
-          onsessioninitialized: (sessionId) => {
-            // Store the transport by session ID
-            transports[sessionId] = transport
-          }
-        })
+        console.log('Creating new transport for initialization request')
+        
+        try {
+          transport = new StreamableHTTPServerTransport({
+            sessionIdGenerator: () => randomUUID(),
+            onsessioninitialized: (sessionId) => {
+              console.log('Session initialized:', sessionId)
+              // Store the transport by session ID
+              transports[sessionId] = transport
+            }
+          })
 
-        // Clean up transport when closed
-        transport.onclose = () => {
-          if (transport.sessionId) {
-            delete transports[transport.sessionId]
+          // Clean up transport when closed
+          transport.onclose = () => {
+            if (transport.sessionId) {
+              delete transports[transport.sessionId]
+            }
           }
+
+          console.log('Getting OpenAPI spec')
+          const openApiSpec = getOpenApiSpec()
+          
+          console.log('Creating MCPProxy')
+          const proxy = new MCPProxy('Notion API', openApiSpec)
+          
+          console.log('Connecting proxy to transport')
+          await proxy.connect(transport)
+          
+          console.log('Proxy connected successfully')
+        } catch (initError) {
+          console.error('Error during initialization:', initError)
+          throw initError
         }
-
-        const openApiSpec = getOpenApiSpec()
-        const proxy = new MCPProxy('Notion API', openApiSpec)
-        await proxy.connect(transport)
       } else {
         // Invalid request
         res.status(400).json({
@@ -155,12 +172,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
   } catch (error) {
     console.error('Error handling MCP request:', error)
+    console.error('Error stack:', error instanceof Error ? error.stack : 'No stack')
     if (!res.headersSent) {
       res.status(500).json({
         jsonrpc: '2.0',
         error: {
           code: -32603,
-          message: 'Internal server error',
+          message: `Internal server error: ${error instanceof Error ? error.message : 'Unknown error'}`,
         },
         id: null,
       })
