@@ -13,6 +13,9 @@ import axios from 'axios'
 
 const baseUrl = process.env.BASE_URL ?? undefined
 const authToken = process.env.AUTH_TOKEN
+const requireAuth =
+  process.env.REQUIRE_AUTH === 'true' ||
+  (process.env.REQUIRE_AUTH !== 'false' && process.env.VERCEL_ENV === 'production')
 
 // Read OpenAPI spec from file system
 function loadOpenApiSpec(): OpenAPIV3.Document {
@@ -194,10 +197,28 @@ const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {}
 
 // Authentication helper
 function authenticate(req: VercelRequest, res: VercelResponse): boolean {
+  // Fail closed in production if auth is required but not configured.
+  if (requireAuth && !authToken) {
+    res.status(500).json({
+      jsonrpc: '2.0',
+      error: { code: -32002, message: 'Server misconfigured: AUTH_TOKEN is required' },
+      id: null
+    })
+    return false
+  }
+
   if (!authToken) return true
-  
+
   const authHeader = req.headers['authorization']
-  const token = authHeader && typeof authHeader === 'string' ? authHeader.split(' ')[1] : null
+  const authHeaderStr = Array.isArray(authHeader) ? authHeader[0] : authHeader
+  const bearerToken =
+    authHeaderStr && typeof authHeaderStr === 'string' && authHeaderStr.toLowerCase().startsWith('bearer ')
+      ? authHeaderStr.slice('bearer '.length).trim()
+      : null
+
+  const directTokenHeader = req.headers['x-auth-token']
+  const directToken = Array.isArray(directTokenHeader) ? directTokenHeader[0] : directTokenHeader
+  const token = bearerToken || (typeof directToken === 'string' ? directToken : null)
   
   if (!token || token !== authToken) {
     res.status(401).json({
