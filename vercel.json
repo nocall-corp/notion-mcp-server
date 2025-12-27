@@ -1,0 +1,14 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "version": 2,
+  "buildCommand": "",
+  "functions": {
+    "api/*.ts": {
+      "includeFiles": "scripts/notion-openapi.json"
+    }
+  },
+  "routes": [
+    { "src": "/mcp", "dest": "/api/mcp" },
+    { "src": "/health", "dest": "/api/health" }
+  ]
+}
