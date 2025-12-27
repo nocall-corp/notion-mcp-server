@@ -10,6 +10,7 @@
   "routes": [
     { "src": "/mcp", "dest": "/api/mcp" },
     { "src": "/sse", "dest": "/api/sse" },
-    { "src": "/health", "dest": "/api/health" }
+    { "src": "/health", "dest": "/api/health" },
+    { "src": "/test", "dest": "/api/test" }
   ]
 }
