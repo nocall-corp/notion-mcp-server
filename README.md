@@ -328,10 +328,24 @@ npx @notionhq/notion-mcp-server --transport http --auth-token "your-secret-token
 ###### Option 3: Custom token via environment variable (recommended for production)
 
 ```bash
-AUTH_TOKEN="your-secret-token" npx @notionhq/notion-mcp-server --transport http
+NOTION_AUTH_TOKEN="your-secret-token" npx @notionhq/notion-mcp-server --transport http
 ```
 
-The command line argument `--auth-token` takes precedence over the `AUTH_TOKEN` environment variable if both are provided.
+The command line argument `--auth-token` takes precedence over the `NOTION_AUTH_TOKEN` environment variable (or legacy `AUTH_TOKEN`) if both are provided.
+
+### Deploying to Vercel (recommended env var names)
+
+If you deploy the HTTP MCP endpoint to Vercel and want to protect it with a bearer token, set:
+
+- `NOTION_AUTH_TOKEN`: the bearer token required to access `/mcp`
+- (optional) `AUTH_TOKEN`: legacy name; supported for backwards compatibility
+
+Migration from `AUTH_TOKEN` → `NOTION_AUTH_TOKEN` (no downtime):
+
+1. Add `NOTION_AUTH_TOKEN` in Vercel with the same value as the current `AUTH_TOKEN`
+2. Redeploy (so the new env var is picked up)
+3. Update clients to send `Authorization: Bearer <that token>`
+4. Remove `AUTH_TOKEN` from Vercel after you confirm everything works
 
 ##### Making HTTP requests
 

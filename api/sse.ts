@@ -6,7 +6,8 @@ import { MCPProxy } from '../src/openapi-mcp-server/mcp/proxy'
 import notionOpenApiSpec from '../scripts/notion-openapi.json'
 
 const baseUrl = process.env.BASE_URL ?? undefined
-const authToken = process.env.AUTH_TOKEN
+// Prefer NOTION_AUTH_TOKEN, but keep AUTH_TOKEN for backwards compatibility.
+const authToken = process.env.NOTION_AUTH_TOKEN ?? process.env.AUTH_TOKEN
 
 // Prepare the OpenAPI spec
 function getOpenApiSpec(): OpenAPIV3.Document {
@@ -96,4 +97,5 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
   }
 }
+
 

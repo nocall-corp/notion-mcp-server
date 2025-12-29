@@ -45,7 +45,8 @@ Options:
 Environment Variables:
   NOTION_TOKEN           Notion integration token (recommended)
   OPENAPI_MCP_HEADERS    JSON string with Notion API headers (alternative)
-  AUTH_TOKEN             Bearer token for HTTP transport authentication (alternative to --auth-token)
+  NOTION_AUTH_TOKEN      Bearer token for HTTP transport authentication (alternative to --auth-token)
+  AUTH_TOKEN             Legacy name for the same value (backwards compatible)
 
 Examples:
   notion-mcp-server                                    # Use stdio transport (default)
@@ -53,7 +54,8 @@ Examples:
   notion-mcp-server --transport http                   # Use Streamable HTTP transport on port 3000
   notion-mcp-server --transport http --port 8080       # Use Streamable HTTP transport on port 8080
   notion-mcp-server --transport http --auth-token mytoken # Use Streamable HTTP transport with custom auth token
-  AUTH_TOKEN=mytoken notion-mcp-server --transport http # Use Streamable HTTP transport with auth token from env var
+  NOTION_AUTH_TOKEN=mytoken notion-mcp-server --transport http # Use Streamable HTTP transport with auth token from env var
+  AUTH_TOKEN=mytoken notion-mcp-server --transport http        # Legacy env var name (backwards compatible)
 `);
         process.exit(0);
       }
@@ -77,8 +79,8 @@ Examples:
     app.use(express.json())
 
     // Generate or use provided auth token (from CLI arg or env var)
-    const authToken = options.authToken || process.env.AUTH_TOKEN || randomBytes(32).toString('hex')
-    if (!options.authToken && !process.env.AUTH_TOKEN) {
+    const authToken = options.authToken || process.env.NOTION_AUTH_TOKEN || process.env.AUTH_TOKEN || randomBytes(32).toString('hex')
+    if (!options.authToken && !process.env.NOTION_AUTH_TOKEN && !process.env.AUTH_TOKEN) {
       console.log(`Generated auth token: ${authToken}`)
       console.log(`Use this token in the Authorization header: Bearer ${authToken}`)
     }

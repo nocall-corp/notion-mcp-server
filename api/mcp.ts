@@ -12,7 +12,8 @@ import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
 import axios from 'axios'
 
 const baseUrl = process.env.BASE_URL ?? undefined
-const authToken = process.env.AUTH_TOKEN
+// Prefer NOTION_AUTH_TOKEN, but keep AUTH_TOKEN for backwards compatibility.
+const authToken = process.env.NOTION_AUTH_TOKEN ?? process.env.AUTH_TOKEN
 const requireAuth =
   process.env.REQUIRE_AUTH === 'true' ||
   (process.env.REQUIRE_AUTH !== 'false' && process.env.VERCEL_ENV === 'production')
@@ -201,7 +202,7 @@ function authenticate(req: VercelRequest, res: VercelResponse): boolean {
   if (requireAuth && !authToken) {
     res.status(500).json({
       jsonrpc: '2.0',
-      error: { code: -32002, message: 'Server misconfigured: AUTH_TOKEN is required' },
+      error: { code: -32002, message: 'Server misconfigured: NOTION_AUTH_TOKEN (or legacy AUTH_TOKEN) is required' },
       id: null
     })
     return false
