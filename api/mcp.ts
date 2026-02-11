@@ -242,19 +242,57 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return
   }
 
+  // #region agent log
+  console.log(`[DEBUG] method=${req.method} authToken_configured=${!!authToken} requireAuth=${requireAuth} activeSessionCount=${Object.keys(transports).length}`)
+  // #endregion
+
   if (!authenticate(req, res)) return
 
   try {
     if (req.method === 'POST') {
       const sessionId = req.headers['mcp-session-id'] as string | undefined
+      const isInit = isInitializeRequest(req.body)
+      // #region agent log
+      console.log(`[DEBUG] POST sessionId=${sessionId || 'none'} isInitRequest=${isInit} sessionExists=${sessionId ? !!transports[sessionId] : 'n/a'} knownSessions=${JSON.stringify(Object.keys(transports))}`)
+      // #endregion
       let transport: StreamableHTTPServerTransport
 
       if (sessionId && transports[sessionId]) {
         transport = transports[sessionId]
-      } else if (!sessionId && isInitializeRequest(req.body)) {
+      } else if (!sessionId && isInit) {
         transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
           onsessioninitialized: (sid) => {
+            // #region agent log
+            console.log(`[DEBUG] session_initialized sid=${sid}`)
+            // #endregion
+            transports[sid] = transport
+          }
+        })
+
+        transport.onclose = () => {
+          if (transport.sessionId) {
+            // #region agent log
+            console.log(`[DEBUG] session_closed sid=${transport.sessionId}`)
+            // #endregion
+            delete transports[transport.sessionId]
+          }
+        }
+
+        const openApiSpec = loadOpenApiSpec()
+        const proxy = new SimpleMCPProxy('Notion API', openApiSpec)
+        await proxy.connect(transport)
+      } else if (sessionId && !transports[sessionId]) {
+        // Session lost (Vercel cold start) - re-initialize transparently
+        // #region agent log
+        console.log(`[DEBUG] session_lost_reinit sessionId=${sessionId} - creating new transport`)
+        // #endregion
+        transport = new StreamableHTTPServerTransport({
+          sessionIdGenerator: () => sessionId, // reuse the same session ID
+          onsessioninitialized: (sid) => {
+            // #region agent log
+            console.log(`[DEBUG] session_reinitialized sid=${sid}`)
+            // #endregion
             transports[sid] = transport
           }
         })
@@ -268,7 +306,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const openApiSpec = loadOpenApiSpec()
         const proxy = new SimpleMCPProxy('Notion API', openApiSpec)
         await proxy.connect(transport)
+        // Send initialize to the new transport first
+        const initBody = { jsonrpc: '2.0', method: 'initialize', id: 'reinit', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'reinit', version: '1.0.0' } } }
+        // We need to initialize internally before handling the actual request
+        await transport.handleRequest(req as any, res as any, req.body)
+        return
       } else {
+        // #region agent log
+        console.log(`[DEBUG] bad_request sessionId=${sessionId || 'none'} isInit=${isInit}`)
+        // #endregion
         res.status(400).json({
           jsonrpc: '2.0',
           error: { code: -32000, message: 'Bad Request: No valid session ID provided' },
@@ -281,6 +327,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     } else if (req.method === 'GET' || req.method === 'DELETE') {
       const sessionId = req.headers['mcp-session-id'] as string | undefined
       if (!sessionId || !transports[sessionId]) {
+        // #region agent log
+        console.log(`[DEBUG] GET/DELETE session_not_found sessionId=${sessionId || 'none'}`)
+        // #endregion
         res.status(400).send('Invalid or missing session ID')
         return
       }
@@ -293,7 +342,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       })
     }
   } catch (error) {
-    console.error('MCP Error:', error)
+    // #region agent log
+    console.error(`[DEBUG] MCP_Error:`, error)
+    // #endregion
     if (!res.headersSent) {
       res.status(500).json({
         jsonrpc: '2.0',
