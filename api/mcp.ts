@@ -177,12 +177,27 @@ function authenticate(req: VercelRequest, res: VercelResponse): boolean {
   return true
 }
 
-// --- Stateless JSON-RPC handler (no session management needed) ---
+// --- SSE response helpers ---
+
+function sendSSE(res: VercelResponse, sessionId: string, data: object) {
+  res.setHeader('Content-Type', 'text/event-stream')
+  res.setHeader('Cache-Control', 'no-cache')
+  res.setHeader('mcp-session-id', sessionId)
+  res.status(200)
+  res.write(`event: message\ndata: ${JSON.stringify(data)}\n\n`)
+  res.end()
+}
+
+// Persistent session ID - reuse across requests since we're stateless
+const STATIC_SESSION_ID = 'notion-mcp-stateless'
+
+// --- Stateless JSON-RPC handler (SSE format for MCP SDK compatibility) ---
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, mcp-session-id')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, mcp-session-id')
+  res.setHeader('Access-Control-Expose-Headers', 'mcp-session-id')
 
   if (req.method === 'OPTIONS') {
     res.status(200).end()
@@ -192,14 +207,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!authenticate(req, res)) return
 
   // #region agent log
-  console.log(`[DEBUG] method=${req.method} body_method=${req.body?.method} body_id=${req.body?.id}`)
+  console.log(`[DEBUG] method=${req.method} body_method=${req.body?.method} body_id=${req.body?.id} accept=${req.headers['accept']} sessionId=${req.headers['mcp-session-id'] || 'none'}`)
   // #endregion
 
   if (req.method === 'GET') {
-    // SSE endpoint - not needed for stateless mode, return empty
+    // SSE stream endpoint - keep alive for MCP clients that open SSE connections
     res.setHeader('Content-Type', 'text/event-stream')
     res.setHeader('Cache-Control', 'no-cache')
     res.setHeader('Connection', 'keep-alive')
+    res.setHeader('mcp-session-id', STATIC_SESSION_ID)
+    res.status(200).end()
+    return
+  }
+
+  if (req.method === 'DELETE') {
+    // Session close - acknowledge
     res.status(200).end()
     return
   }
@@ -216,38 +238,53 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   const spec = loadOpenApiSpec()
+  const wantsSSE = (req.headers['accept'] || '').includes('text/event-stream')
 
   try {
     switch (body.method) {
       case 'initialize': {
         // #region agent log
-        console.log(`[DEBUG] handling initialize`)
+        console.log(`[DEBUG] handling initialize wantsSSE=${wantsSSE}`)
         // #endregion
-        const sessionId = `stateless-${Date.now()}`
-        res.setHeader('mcp-session-id', sessionId)
-        res.status(200).json({
-          jsonrpc: '2.0',
+        const result = {
+          jsonrpc: '2.0' as const,
           result: {
             protocolVersion: '2024-11-05',
             capabilities: { tools: {} },
             serverInfo: { name: 'Notion API', version: '2.0.0' },
           },
           id: body.id,
-        })
+        }
+        if (wantsSSE) {
+          sendSSE(res, STATIC_SESSION_ID, result)
+        } else {
+          res.setHeader('mcp-session-id', STATIC_SESSION_ID)
+          res.status(200).json(result)
+        }
         return
       }
 
       case 'notifications/initialized': {
-        res.status(200).json({ jsonrpc: '2.0', result: {}, id: body.id })
+        // #region agent log
+        console.log(`[DEBUG] handling notifications/initialized`)
+        // #endregion
+        // Notifications don't expect a response per MCP spec
+        res.status(204).end()
         return
       }
 
       case 'tools/list': {
         // #region agent log
-        console.log(`[DEBUG] handling tools/list`)
+        console.log(`[DEBUG] handling tools/list wantsSSE=${wantsSSE}`)
         // #endregion
         const tools = generateTools(spec)
-        res.status(200).json({ jsonrpc: '2.0', result: { tools }, id: body.id })
+        const result = { jsonrpc: '2.0' as const, result: { tools }, id: body.id }
+        if (wantsSSE) {
+          sendSSE(res, STATIC_SESSION_ID, result)
+        } else {
+          res.setHeader('mcp-session-id', STATIC_SESSION_ID)
+          res.status(200).json(result)
+        }
         return
       }
 
@@ -255,19 +292,39 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const toolName = body.params?.name
         const toolArgs = body.params?.arguments
         // #region agent log
-        console.log(`[DEBUG] handling tools/call name=${toolName}`)
+        console.log(`[DEBUG] handling tools/call name=${toolName} wantsSSE=${wantsSSE}`)
         // #endregion
-        const result = await executeTool(toolName, toolArgs, spec)
-        res.status(200).json({ jsonrpc: '2.0', result, id: body.id })
+        const toolResult = await executeTool(toolName, toolArgs, spec)
+        const result = { jsonrpc: '2.0' as const, result: toolResult, id: body.id }
+        if (wantsSSE) {
+          sendSSE(res, STATIC_SESSION_ID, result)
+        } else {
+          res.setHeader('mcp-session-id', STATIC_SESSION_ID)
+          res.status(200).json(result)
+        }
         return
       }
 
       case 'ping': {
-        res.status(200).json({ jsonrpc: '2.0', result: {}, id: body.id })
+        const result = { jsonrpc: '2.0' as const, result: {}, id: body.id }
+        if (wantsSSE) {
+          sendSSE(res, STATIC_SESSION_ID, result)
+        } else {
+          res.setHeader('mcp-session-id', STATIC_SESSION_ID)
+          res.status(200).json(result)
+        }
         return
       }
 
       default: {
+        // Handle any notification (method starts with "notifications/")
+        if (body.method.startsWith('notifications/')) {
+          // #region agent log
+          console.log(`[DEBUG] handling notification: ${body.method}`)
+          // #endregion
+          res.status(204).end()
+          return
+        }
         // #region agent log
         console.log(`[DEBUG] unknown method: ${body.method}`)
         // #endregion
