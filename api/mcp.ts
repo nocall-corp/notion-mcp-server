@@ -114,12 +114,30 @@ const handler = createMcpHandler(
           const toolName = operation.operationId.slice(0, 64)
           const description = operation.summary || operation.description || `${method.toUpperCase()} ${path}`
 
-          // Use a permissive schema - the actual validation happens at the Notion API level
+          // Build Zod schema from OpenAPI parameters for proper parameter passing
+          const schemaShape: Record<string, z.ZodTypeAny> = {}
+
+          // Add path/query parameters
+          if (operation.parameters) {
+            for (const param of operation.parameters) {
+              if ("name" in param) {
+                schemaShape[param.name] = param.required
+                  ? z.any().describe(("description" in param ? param.description : param.name) || param.name)
+                  : z.any().optional().describe(("description" in param ? param.description : param.name) || param.name)
+              }
+            }
+          }
+
+          // Add request body as 'body' parameter
+          if (operation.requestBody && "content" in operation.requestBody) {
+            schemaShape["body"] = z.record(z.unknown()).optional().describe("Request body (JSON object)")
+          }
+
           server.tool(
             toolName,
             description,
-            { args: z.record(z.unknown()).optional().describe("Tool arguments") },
-            async ({ args: toolArgs }) => {
+            schemaShape,
+            async (toolArgs: Record<string, unknown>) => {
               const result = await executeNotionCall(spec, toolName, toolArgs || {})
               return { content: [{ type: "text" as const, text: result }] }
             }
