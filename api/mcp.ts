@@ -1,4 +1,4 @@
-import { initializeMcpApiHandler } from "@vercel/mcp-adapter"
+import { createMcpHandler } from "@vercel/mcp-adapter"
 import { z } from "zod"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
@@ -99,7 +99,7 @@ async function executeNotionCall(
 
 // --- MCP handler using @vercel/mcp-adapter ---
 
-const handler = initializeMcpApiHandler(
+const handler = createMcpHandler(
   (server) => {
     const spec = loadOpenApiSpec()
 
