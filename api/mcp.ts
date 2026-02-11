@@ -29,7 +29,7 @@ function getNotionHeaders(): Record<string, string> {
   if (notionToken) {
     return {
       Authorization: `Bearer ${notionToken}`,
-      "Notion-Version": "2025-09-03",
+      "Notion-Version": "2022-06-28",
       "Content-Type": "application/json",
     }
   }
@@ -65,7 +65,13 @@ async function executeNotionCall(
   }
 
   const serverUrl = spec.servers?.[0]?.url || "https://api.notion.com"
-  let url = `${serverUrl}${found.path}`
+  // Map data_sources paths to databases paths for compatibility with older Notion API versions
+  const mappedPath = found.path
+    .replace("/v1/data_sources/{data_source_id}/query", "/v1/databases/{data_source_id}/query")
+    .replace("/v1/data_sources/{data_source_id}/templates", "/v1/databases/{data_source_id}/templates")
+    .replace("/v1/data_sources/{data_source_id}", "/v1/databases/{data_source_id}")
+    .replace("/v1/data_sources", "/v1/databases")
+  let url = `${serverUrl}${mappedPath}`
   const queryParams: Record<string, string> = {}
   let body: any = undefined
 
